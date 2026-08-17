@@ -15,6 +15,7 @@ jobs:
   build:
     name: Build Signed Release APK
     runs-on: ubuntu-latest
+    if: false # disabled in dm-hub fork — no release keystore secrets configured, see debug-apk.yml instead
 
     steps:
       - name: Checkout repository

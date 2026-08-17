@@ -1,3 +1,5 @@
+> **dm-hub-fork:** Detta är dm-hub:s fork av notification-forwarder-appen, tänkt som Android-bryggan för capture-mekanismen (notiser → dm-hub webhook, senare även reply-relay tillbaka till telefonen). Upstream: https://github.com/ItsAzni/NotificationForwarder. Debug-bygge sker via GitHub Actions (workflow `debug-apk.yml`) — APK:n hämtas som artifact från workflow-körningen, ingen lokal Android-toolchain krävs. Release-workflowet (`build.yml`) är avstängt i forken (kräver upstreams keystore-secrets).
+
 # Notification Forwarder (Android)
 
 Android app to listen for incoming notifications and forward them to a configurable webhook API.
