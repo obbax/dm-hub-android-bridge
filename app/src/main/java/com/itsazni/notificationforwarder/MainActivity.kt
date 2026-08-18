@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Tune
@@ -77,6 +78,7 @@ import kotlinx.coroutines.withContext
 private enum class AppTab(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Filled.Home),
     WEBHOOK("Webhook", Icons.Filled.Link),
+    RELAY("Relay", Icons.AutoMirrored.Filled.Reply),
     FILTER("Filter", Icons.Filled.Tune),
     QUEUE("Queue", Icons.AutoMirrored.Filled.List)
 }
@@ -93,7 +95,9 @@ private data class UiSettings(
     val queryParamsRaw: String,
     val payloadTemplateRaw: String,
     val maxRetriesRaw: String,
-    val batchSizeRaw: String
+    val batchSizeRaw: String,
+    val relaySecret: String,
+    val relayPortRaw: String
 )
 
 private fun AppSettings.toUiSettings(): UiSettings {
@@ -109,7 +113,9 @@ private fun AppSettings.toUiSettings(): UiSettings {
         queryParamsRaw = queryParamsRaw,
         payloadTemplateRaw = payloadTemplateRaw,
         maxRetriesRaw = maxRetries.toString(),
-        batchSizeRaw = batchSize.toString()
+        batchSizeRaw = batchSize.toString(),
+        relaySecret = relaySecret,
+        relayPortRaw = relayPort.toString()
     )
 }
 
@@ -208,6 +214,18 @@ private fun MainScreen(settingsStore: SettingsStore) {
                             if (result.success) "Webhook test success" else "Webhook test failed: ${result.message}"
                         )
                     }
+                }
+            )
+
+            AppTab.RELAY -> RelayScreen(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                uiSettings = uiSettings,
+                onSettingsChange = { uiSettings = it },
+                onSave = {
+                    saveSettings(settingsStore, uiSettings)
+                    scope.launch { snackbarHostState.showSnackbar("Relay settings saved") }
                 }
             )
 
@@ -458,6 +476,59 @@ private fun WebhookScreen(
 }
 
 @Composable
+private fun RelayScreen(
+    modifier: Modifier,
+    uiSettings: UiSettings,
+    onSettingsChange: (UiSettings) -> Unit,
+    onSave: () -> Unit
+) {
+    LazyColumn(
+        modifier = modifier.padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Reply Relay", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Lets dm-hub fire a RemoteInput reply into this phone's still-active " +
+                            "notifications. Requires the shared secret below to match dm-hub's " +
+                            "ANDROID_RELAY_SECRET. Port change takes effect after the " +
+                            "notification listener reconnects (toggle access off/on, or reboot).",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = uiSettings.relaySecret,
+                        onValueChange = { onSettingsChange(uiSettings.copy(relaySecret = it)) },
+                        label = { Text("Relay secret (X-DM-Hub-Secret)") },
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = uiSettings.relayPortRaw,
+                        onValueChange = {
+                            onSettingsChange(uiSettings.copy(relayPortRaw = it.filter { c -> c.isDigit() }))
+                        },
+                        label = { Text("Relay port") },
+                        singleLine = true
+                    )
+
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = onSave) {
+                        Text("Save Relay Settings")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FilterScreen(
     modifier: Modifier,
     uiSettings: UiSettings,
@@ -685,6 +756,8 @@ private fun saveSettings(settingsStore: SettingsStore, uiSettings: UiSettings) {
     settingsStore.payloadTemplateRaw = uiSettings.payloadTemplateRaw
     settingsStore.maxRetries = uiSettings.maxRetriesRaw.toIntOrNull() ?: 10
     settingsStore.batchSize = uiSettings.batchSizeRaw.toIntOrNull() ?: 20
+    settingsStore.relaySecret = uiSettings.relaySecret
+    settingsStore.relayPort = uiSettings.relayPortRaw.toIntOrNull() ?: SettingsStore.DEFAULT_RELAY_PORT
 }
 
 private fun isNotificationListenerEnabled(context: Context): Boolean {

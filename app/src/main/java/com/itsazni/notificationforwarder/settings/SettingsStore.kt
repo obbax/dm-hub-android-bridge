@@ -19,7 +19,9 @@ data class AppSettings(
     val queryParamsRaw: String,
     val payloadTemplateRaw: String,
     val maxRetries: Int,
-    val batchSize: Int
+    val batchSize: Int,
+    val relaySecret: String,
+    val relayPort: Int
 )
 
 class SettingsStore(context: Context) {
@@ -74,6 +76,17 @@ class SettingsStore(context: Context) {
         get() = prefs.getInt(KEY_BATCH_SIZE, 20)
         set(value) = prefs.edit { putInt(KEY_BATCH_SIZE, value.coerceIn(1, 100)) }
 
+    // Fas 2 checkpoint 8: shared secret the reply-relay's local HTTP server requires on every
+    // request (header X-DM-Hub-Secret), and the port it listens on. Robin enters relaySecret
+    // here in-app -- it is never read from a network response or logged.
+    var relaySecret: String
+        get() = prefs.getString(KEY_RELAY_SECRET, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_RELAY_SECRET, value.trim()) }
+
+    var relayPort: Int
+        get() = prefs.getInt(KEY_RELAY_PORT, DEFAULT_RELAY_PORT)
+        set(value) = prefs.edit { putInt(KEY_RELAY_PORT, value.coerceIn(1024, 65535)) }
+
     fun readAll(): AppSettings {
         return AppSettings(
             webhookUrl = webhookUrl,
@@ -87,7 +100,9 @@ class SettingsStore(context: Context) {
             queryParamsRaw = queryParamsRaw,
             payloadTemplateRaw = payloadTemplateRaw,
             maxRetries = maxRetries,
-            batchSize = batchSize
+            batchSize = batchSize,
+            relaySecret = relaySecret,
+            relayPort = relayPort
         )
     }
 
@@ -136,6 +151,9 @@ class SettingsStore(context: Context) {
         private const val KEY_PAYLOAD_TEMPLATE_RAW = "payload_template_raw"
         private const val KEY_MAX_RETRY = "max_retry"
         private const val KEY_BATCH_SIZE = "batch_size"
+        private const val KEY_RELAY_SECRET = "relay_secret"
+        private const val KEY_RELAY_PORT = "relay_port"
+        const val DEFAULT_RELAY_PORT = 8765
 
         fun parsePackages(raw: String): Set<String> {
             return raw.split(',', '\n', ';')

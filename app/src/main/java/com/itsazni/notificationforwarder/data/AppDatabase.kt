@@ -15,9 +15,12 @@ import androidx.room.RoomDatabase
 // no JVM DB/migration test harness, so an unverifiable ALTER TABLE migration (this
 // build has no local Android/JDK toolchain to compile-check it against) is a bigger
 // real risk than a documented, bounded data reset on a single-device personal queue.
-@Database(entities = [QueueItem::class], version = 2, exportSchema = false)
+// v2 -> v3 (Fas 2 checkpoint 8): added reply_receipts (new table, additive) -- same
+// destructive-migration call, same rationale; a brand-new table has no existing rows to lose.
+@Database(entities = [QueueItem::class, ReplyReceipt::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun queueDao(): QueueDao
+    abstract fun replyReceiptDao(): ReplyReceiptDao
 
     companion object {
         @Volatile
