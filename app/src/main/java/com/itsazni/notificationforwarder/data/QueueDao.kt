@@ -24,6 +24,22 @@ interface QueueDao {
     @Query("UPDATE notification_queue SET status = 'SENDING', updatedAt = :now WHERE id IN (:ids)")
     suspend fun markSending(ids: List<Long>, now: Long)
 
+    // SENDING-lease recovery: a row can get stuck in SENDING forever if the process
+    // dies between markSending() and markSent()/markFailure(). Anything still SENDING
+    // past the lease window goes back to PENDING (with attempt-count bumped so retry
+    // backoff/max-retries still apply) so getPending() can pick it up again.
+    @Query(
+        """
+        UPDATE notification_queue
+        SET status = 'PENDING',
+            attemptCount = attemptCount + 1,
+            nextRetryAt = :now,
+            updatedAt = :now
+        WHERE status = 'SENDING' AND updatedAt <= :cutoff
+        """
+    )
+    suspend fun recoverStaleSending(cutoff: Long, now: Long): Int
+
     @Query(
         """
         UPDATE notification_queue

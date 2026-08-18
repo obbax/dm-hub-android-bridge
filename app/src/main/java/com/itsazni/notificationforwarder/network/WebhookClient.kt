@@ -1,6 +1,8 @@
 package com.itsazni.notificationforwarder.network
 
 import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.itsazni.notificationforwarder.data.QueueItem
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -50,17 +52,37 @@ class WebhookClient {
 
             val finalUrl = buildUrl(url, queryParams)
             val bodyJson = if (payloadTemplate.isBlank()) {
-                gson.toJson(
-                    mapOf(
-                        "deviceId" to deviceId,
-                        "packageName" to item.packageName,
-                        "appName" to item.appName,
-                        "title" to item.title,
-                        "text" to item.text,
-                        "postedAt" to item.postedAt,
-                        "notificationKey" to item.notificationKey
+                // Rich schema matching dm-hub's src/connectors/android-nls/normalize.js
+                // EXACTLY (Fas 2 checkpoint 5, task 3): notificationKey, packageName,
+                // appName, title, text, senderName, messages[], postedAt, actions[].
+                // Built via JsonObject/JsonArray (not a Kotlin Map + gson.toJson) so
+                // item.actionsJson -- already a JSON array string -- gets embedded as
+                // real JSON, not double-encoded into a quoted string.
+                val senderName = item.senderName ?: item.title
+                val payload = JsonObject().apply {
+                    addProperty("deviceId", deviceId)
+                    addProperty("packageName", item.packageName)
+                    addProperty("appName", item.appName)
+                    addProperty("title", item.title)
+                    addProperty("text", item.text)
+                    addProperty("senderName", senderName)
+                    addProperty("postedAt", item.postedAt)
+                    addProperty("notificationKey", item.notificationKey)
+                    add(
+                        "messages",
+                        JsonArray().apply {
+                            add(
+                                JsonObject().apply {
+                                    addProperty("text", item.text)
+                                    addProperty("sender", senderName)
+                                    addProperty("timestamp", item.postedAt)
+                                }
+                            )
+                        }
                     )
-                )
+                    add("actions", JsonParser.parseString(item.actionsJson))
+                }
+                gson.toJson(payload)
             } else {
                 renderTemplate(payloadTemplate, vars)
             }

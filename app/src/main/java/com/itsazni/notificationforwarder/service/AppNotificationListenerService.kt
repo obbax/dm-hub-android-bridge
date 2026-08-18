@@ -4,6 +4,7 @@ import android.app.Notification
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.google.gson.Gson
 import com.itsazni.notificationforwarder.data.NotificationRepository
 import com.itsazni.notificationforwarder.worker.WorkerScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +14,7 @@ import kotlinx.coroutines.launch
 
 class AppNotificationListenerService : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val gson = Gson()
 
     private data class RecentEvent(
         val contentHash: Int,
@@ -40,16 +42,36 @@ class AppNotificationListenerService : NotificationListenerService() {
             return
         }
 
+        // MessagingStyle extraction (Fas 2 checkpoint 5, task 2): pull every message
+        // the notification currently exposes, plus reply-capable actions. Falls back
+        // to the legacy single title/text/bigText message when there's no
+        // MessagingStyle (most apps outside WhatsApp/Messenger/Telegram-style chat UIs).
+        val extraction = NotificationExtractor.extract(notification)
+        val conversationTitle = extraction.conversationTitle ?: title
+        val actionsJson = gson.toJson(extraction.actions)
+        val outgoing = extraction.messages.ifEmpty {
+            listOf(ExtractedMessage(text = bigText.ifBlank { text }, sender = "", timestampMs = item.postTime))
+        }
+
         serviceScope.launch {
             val repository = NotificationRepository(applicationContext)
-            repository.enqueue(
-                packageName = item.packageName,
-                appName = resolveAppName(item.packageName),
-                title = title,
-                text = text,
-                postedAt = item.postTime,
-                notificationKey = item.key
-            )
+            val appName = resolveAppName(item.packageName)
+            // One enqueue() per extracted message: DB-level dedup (QueueItem.dedupKey)
+            // handles reposts of already-seen messages, so re-processing the whole
+            // rolling MessagingStyle window on every post is safe and simple -- no
+            // separate "seen messages" tracking needed (task 1).
+            outgoing.forEach { message ->
+                repository.enqueue(
+                    packageName = item.packageName,
+                    appName = appName,
+                    title = conversationTitle,
+                    text = message.text,
+                    postedAt = message.timestampMs,
+                    notificationKey = item.key,
+                    senderName = message.sender.ifBlank { null },
+                    actionsJson = actionsJson
+                )
+            }
             WorkerScheduler.enqueueImmediate(applicationContext)
         }
     }
