@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fas 2 checkpoint 5, task 5a (analyzed, not changed): global cleartext stays on.
+  Android's network security config domain matching only supports exact FQDNs or
+  exact IP literals, no CIDR, so a Tailscale CGNAT range (100.64.0.0/10) can't be
+  scoped here, and the per-device Tailscale IP that's actually in use (webhookUrl,
+  set at runtime in Settings) can't be baked into this static resource. Narrowing
+  to a domain-config with cleartextTrafficPermitted true for the "*.ts.net" MagicDNS
+  suffix would be real hardening, but it requires the user to switch their webhookUrl
+  from a raw 100.x.y.z IP to a ts.net hostname first, or delivery silently breaks;
+  see checkpoint 5 report for the operator step. Left as a documented follow-up
+  rather than risking the live E2E path with an unverifiable change (no local
+  Android/JDK toolchain in this environment to compile-check it against).
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

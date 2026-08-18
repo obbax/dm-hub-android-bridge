@@ -24,6 +24,8 @@ class QueueWorker(
             return Result.success()
         }
 
+        repository.recoverStaleSending()
+
         val items = repository.getPending(config.batchSize)
         if (items.isEmpty()) {
             return Result.success()

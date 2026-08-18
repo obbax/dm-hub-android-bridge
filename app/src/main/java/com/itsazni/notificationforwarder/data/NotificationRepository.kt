@@ -14,7 +14,9 @@ class NotificationRepository(private val context: Context) {
         title: String,
         text: String,
         postedAt: Long,
-        notificationKey: String
+        notificationKey: String,
+        senderName: String? = null,
+        actionsJson: String = "[]"
     ) {
         if (!settingsStore.forwardingEnabled) {
             return
@@ -30,8 +32,10 @@ class NotificationRepository(private val context: Context) {
             appName = appName,
             title = title,
             text = text,
+            senderName = senderName,
             postedAt = postedAt,
             notificationKey = notificationKey,
+            actionsJson = actionsJson,
             nextRetryAt = now,
             createdAt = now,
             updatedAt = now
@@ -41,6 +45,14 @@ class NotificationRepository(private val context: Context) {
 
     suspend fun getPending(limit: Int): List<QueueItem> {
         return dao.getPending(System.currentTimeMillis(), limit)
+    }
+
+    // Fas 2 checkpoint 5, task 4: recover rows stuck in SENDING (process died between
+    // markSending() and markSent()/markFailure()) back to PENDING before each worker
+    // run picks up new work.
+    suspend fun recoverStaleSending() {
+        val now = System.currentTimeMillis()
+        dao.recoverStaleSending(LeaseRecovery.cutoff(now), now)
     }
 
     suspend fun markSending(ids: List<Long>) {
