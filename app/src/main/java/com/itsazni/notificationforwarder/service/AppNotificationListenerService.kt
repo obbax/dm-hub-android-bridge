@@ -6,6 +6,10 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.google.gson.Gson
 import com.itsazni.notificationforwarder.data.NotificationRepository
+import com.itsazni.notificationforwarder.relay.RegisteredReplyAction
+import com.itsazni.notificationforwarder.relay.RelayServer
+import com.itsazni.notificationforwarder.relay.ReplyActionRegistry
+import com.itsazni.notificationforwarder.settings.SettingsStore
 import com.itsazni.notificationforwarder.worker.WorkerScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +20,13 @@ class AppNotificationListenerService : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
 
+    // Fas 2 checkpoint 8: registry of currently-repliable notifications + the local relay
+    // server that fires their RemoteInput on dm-hub's behalf. Both are tied to the listener's
+    // own lifecycle (onListenerConnected/onListenerDisconnected below) -- no new process, no
+    // new foreground service (task 4).
+    private val replyRegistry = ReplyActionRegistry()
+    private var relayServer: RelayServer? = null
+
     private data class RecentEvent(
         val contentHash: Int,
         val postedAt: Long,
@@ -24,6 +35,25 @@ class AppNotificationListenerService : NotificationListenerService() {
 
     private val dedupLock = Any()
     private val recentEvents = LinkedHashMap<String, RecentEvent>(MAX_RECENT_EVENTS, 0.75f, true)
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        val port = SettingsStore(applicationContext).relayPort
+        val server = RelayServer(applicationContext, replyRegistry, port)
+        server.start()
+        relayServer = server
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        relayServer?.stop()
+        relayServer = null
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
+        sbn?.key?.let { replyRegistry.remove(it) }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
@@ -52,6 +82,8 @@ class AppNotificationListenerService : NotificationListenerService() {
         val outgoing = extraction.messages.ifEmpty {
             listOf(ExtractedMessage(text = bigText.ifBlank { text }, sender = "", timestampMs = item.postTime))
         }
+
+        registerReplyAction(item, notification)
 
         serviceScope.launch {
             val repository = NotificationRepository(applicationContext)
@@ -82,6 +114,25 @@ class AppNotificationListenerService : NotificationListenerService() {
             val applicationInfo = pm.getApplicationInfo(pkg, 0)
             pm.getApplicationLabel(applicationInfo).toString()
         }.getOrDefault(pkg)
+    }
+
+    // Fas 2 checkpoint 8, task 1: mirror of the first RemoteInput-capable action into the
+    // in-memory registry the relay server reads from. Keyed by notificationKey (sbn.key) --
+    // same key the queue/relay contract already uses -- so a reply POST from dm-hub can find
+    // the live PendingIntent for a notification it only knows by that key.
+    private fun registerReplyAction(sbn: StatusBarNotification, notification: Notification) {
+        val replyAction = notification.actions?.firstOrNull { !it.remoteInputs.isNullOrEmpty() }
+        val actionIntent = replyAction?.actionIntent ?: return
+        val remoteInputs = replyAction.remoteInputs ?: return
+        replyRegistry.register(
+            sbn.key,
+            RegisteredReplyAction(
+                notificationKey = sbn.key,
+                actionIntent = actionIntent,
+                remoteInputs = remoteInputs,
+                registeredAt = System.currentTimeMillis()
+            )
+        )
     }
 
     private fun shouldSkip(
